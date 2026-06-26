@@ -181,4 +181,5 @@ def get_client(provider: str) -> LLMClient:
 def _load_default_adapters() -> None:
     """Import adapter modules so their `@register_client` decorators run."""
     from . import fake as _fake  # noqa: F401 — import for side effect
+    from . import ollama as _ollama  # noqa: F401
     from . import openai_compat  # noqa: F401
