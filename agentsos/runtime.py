@@ -11,6 +11,9 @@ import asyncio
 import json
 from dataclasses import dataclass
 
+from tokenlab.count import count as count_text
+from tokenlab.count import count_messages
+
 from .manifest import Manifest
 from .trace import JsonlTraceSink, TraceEvent
 
@@ -39,13 +42,20 @@ class Runtime:
         # Phase 1: stub — produce a deterministic echo so the loop is wired
         # end-to-end. Replaced with a real LLM loop in v0.2.
         await asyncio.sleep(0.01)
+        # Real token accounting via tokenlab — the cost ceiling in
+        # manifest.policies.max_cost_usd depends on these numbers being truthful.
+        system_msg = [{"role": "system", "content": manifest.system_prompt}]
+        user_msg = [{"role": "user", "content": goal}]
+        tokens_in = count_messages(system_msg)[0].tokens + count_messages(user_msg)[0].tokens
+        output_text = f"[stub] agent={manifest.name} model={manifest.model.id} goal={goal!r}"
+        tokens_out = count_text(output_text)
         result = RunResult(
             agent=agent_id,
             steps=1,
-            tokens_in=len(goal.split()),
-            tokens_out=len(goal.split()),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
             status="ok",
-            output=f"[stub] agent={manifest.name} model={manifest.model.id} goal={goal!r}",
+            output=output_text,
         )
         self.traces.emit(
             TraceEvent(
