@@ -118,6 +118,9 @@ class Completion:
     finish_reason: str = "stop"
     # Optional provider-reported metadata, kept for telemetry / cost dashboards.
     model: str = ""
+    # If the model wants to call tools, they appear here. Empty tuple means
+    # the model returned a final answer and the loop should terminate.
+    tool_calls: tuple[ToolCall, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -178,4 +181,5 @@ def get_client(provider: str) -> LLMClient:
 def _load_default_adapters() -> None:
     """Import adapter modules so their `@register_client` decorators run."""
     from . import fake as _fake  # noqa: F401 — import for side effect
+    from . import ollama as _ollama  # noqa: F401
     from . import openai_compat  # noqa: F401

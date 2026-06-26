@@ -1,0 +1,28 @@
+name: local-llama-agent
+version: 0.1.0
+description: |
+  Default Ollama-backed agent. Zero API cost. Run with
+  `ollama serve` then `agentsos run agents/templates/local-llama-agent.yaml`.
+
+  Swap `model.id` to any tag you've pulled with `ollama pull <name>`.
+  See `agents/models/REGISTRY.md` for the top-10 ranked list with
+  why-each-pick reasoning.
+model:
+  provider: ollama
+  id: llama3.1:8b-instruct     # fits in 8 GB VRAM, strong tool use for size
+  temperature: 0.7
+  max_tokens: 4096
+system_prompt: |
+  You are a local-first agent. Prefer small, verifiable steps. Cite
+  the file path and line when you change something. Stop and summarise
+  whenever the next step would cost more than a minute of compute.
+tools:
+  - terminal
+  - file
+policies:
+  max_steps: 25
+  max_cost_usd: 1.00           # local Ollama is free; this is a safety ceiling
+  timeout_s: 600
+memory:
+  namespaces: [default]
+  retrieve_k: 5

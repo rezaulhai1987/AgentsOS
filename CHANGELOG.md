@@ -4,7 +4,41 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — 2026-06-26 — Skeleton
+## [0.2.2] — 2026-06-26 — Free / local LLM support (Ollama)
+
+### Added
+- **Ollama adapter** (`agentsos.llm.ollama`). `provider: ollama` in the
+  manifest now resolves to `http://localhost:11434/v1` with no API key
+  required. Backed by the existing OpenAI-compat wire format — no
+  duplication of chat-completions logic.
+- **`ModelSpec.base_url` and `ModelSpec.api_key`** — per-agent overrides
+  for any provider. Useful when Ollama runs on a remote host
+  (`base_url: http://gpu-box.lan:11434/v1`) or when a hosted endpoint
+  needs its own key distinct from the global env var.
+- **`AGENTSOS_OLLAMA_BASE_URL`** env var — runtime override for users
+  who can't edit YAML (CI runners, sidecar containers).
+- **`agents/models/REGISTRY.md`** — ranked top-10 free/open-weight LLMs
+  for agent workloads (Llama 3.3 70B, DeepSeek-R1/V3, Qwen 2.5 72B,
+  Mistral Large 2, Llama 3.1 8B, Phi-4, Gemma 3 27B, Command-R,
+  Yi-1.5 34B, gpt-oss-20b/120b) with license, hardware, and
+  fit-for-agents reasoning per entry.
+- **`agents/templates/local-llama-agent.yaml`** — drop-in starter
+  manifest using `provider: ollama`.
+
+### Changed
+- `ModelSpec.provider` regex now accepts `ollama` alongside the existing
+  `openai | anthropic | llama.cpp | hf | fake`. `fake` remains the test
+  escape hatch and is never valid in real agent YAML.
+
+### Notes
+- **All models in `REGISTRY.md` are free at the point of use** when run
+  via local Ollama. The `max_cost_usd` policy remains truthful
+  (local inference is $0; the uniform token-rate placeholder still
+  fires as a safety ceiling). For hosted free tiers (OpenRouter,
+  Groq) the ceiling becomes meaningful once per-model pricing ships
+  in v0.3.
+
+## [0.2.1] — 2026-06-26 — Think-Act-Observe loop
 
 ### Added
 - Repository layout: `agents/`, `orchestrator/`, `runtime/`, `memory/`,
@@ -23,6 +57,40 @@ adheres to [Semantic Versioning](https://semver.org/).
 - `tools/audit_session.py` — standalone Hermes session auditor.
 - Pytest suite for manifest, orchestrator, runtime, tools, and tokenlab.
 - GitHub Actions CI (lint + test on Python 3.11/3.12).
+
+## [0.2.1] — 2026-06-26 — Think-Act-Observe loop
+
+### Added
+- Runtime now owns a real loop: Think (LLM call) → Act (dispatch every
+  `tool_call`) → Observe (append `tool` message) → repeat until the
+  model stops calling tools or a policy fires.
+- `Runtime.run` honours every policy in `manifest.policies`:
+  - `max_steps` — hard cap on loop iterations.
+  - `max_cost_usd` — checked **inline after each step**, not at exit, so
+    a runaway loop can't burn through a full `max_steps` after the
+    ceiling is already crossed.
+  - `timeout_s` — wall-clock budget via `asyncio.wait_for`.
+- `FakeClient.script([Completion, ...])` — ordered-queue scripting for
+  deterministic multi-turn loop tests (the older `record()` /
+  `record_default()` substring-match API still works for single-turn
+  tests, but breaks once the transcript grows).
+- `Completion.tool_calls` / `Completion.finish_reason` — promoted to
+  first-class fields on the `LLMClient` contract so adapters can
+  report structured function calls without overloading `content`.
+- `RunResult` — structured return from `Runtime.run` carrying the full
+  accounting picture (steps, tokens in/out, cost_usd, status, output,
+  tool_calls).
+- New `tools_builtin.py` docstrings are read at runtime to build
+  `ToolSpec.description` (first non-empty line of the docstring).
+- Trace events: `step.started`, `llm.called`, `tool.called`,
+  `tool.error`, `step.completed` — every transition a real agent run
+  produces is on the JSONL trace sink.
+
+### Fixed
+- Runtime previously called the LLM once and exited; it now loops and
+  dispatches tool calls, making agents actually executable end-to-end.
+- `ToolRegistry` no longer crashes when a manifest references an
+  unknown tool — the spec is just skipped (strict mode lands in v0.3).
 
 ## [0.2.0] — 2026-06-26 — LLM client abstraction
 
