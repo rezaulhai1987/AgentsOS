@@ -1,0 +1,24 @@
+name: research-agent
+version: 0.1.0
+description: Web research agent that gathers, summarizes, and cites sources.
+model:
+  provider: anthropic
+  id: claude-sonnet-4
+  temperature: 0.3
+  max_tokens: 4096
+system_prompt: |
+  You are a research agent. Given a question, you plan searches, gather
+  sources from the web, distill them into a structured summary, and cite
+  every claim with the URL it came from. Prefer primary sources. Quote
+  exactly when precision matters; paraphrase otherwise.
+tools:
+  - http
+  - browser
+  - file
+policies:
+  max_steps: 30
+  max_cost_usd: 2.00
+  timeout_s: 900
+memory:
+  namespaces: ["research", "web"]
+  retrieve_k: 8

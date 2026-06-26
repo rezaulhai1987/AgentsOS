@@ -1,0 +1,21 @@
+name: code-agent
+version: 0.1.0
+description: Reads, edits, and runs code in a sandboxed environment.
+model:
+  provider: anthropic
+  id: claude-sonnet-4
+  temperature: 0.2
+  max_tokens: 8192
+system_prompt: |
+  You are a code agent. Given a coding task, you explore the repo, plan
+  the change in small steps, edit files, and run tests after each step.
+  Stop and ask the user whenever requirements are ambiguous.
+tools:
+  - terminal
+  - file
+  - code-exec
+  - github
+policies:
+  max_steps: 50
+  max_cost_usd: 5.00
+  timeout_s: 1800

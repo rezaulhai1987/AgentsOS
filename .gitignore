@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Runtime artifacts
+traces/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+.env
+*.pem
+*.key

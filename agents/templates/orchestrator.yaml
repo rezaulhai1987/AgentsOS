@@ -1,0 +1,19 @@
+name: orchestrator
+version: 0.1.0
+description: Meta-agent that decomposes a goal into a graph of sub-agents.
+model:
+  provider: anthropic
+  id: claude-sonnet-4
+  temperature: 0.4
+  max_tokens: 8192
+system_prompt: |
+  You are the orchestrator. Given a high-level goal, you break it into a
+  directed graph of agent invocations, define the data flow between them,
+  and emit a plan that the runtime can execute. Prefer small, parallel
+  branches over deep chains. Always declare a verification step at the
+  end.
+tools: []
+policies:
+  max_steps: 10
+  max_cost_usd: 1.00
+  timeout_s: 300

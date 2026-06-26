@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentsos"
+version = "0.1.0"
+description = "An operating system for agent creation, management, and orchestration."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "rezaulhai1987" }]
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13.7",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+llm-openai = ["openai>=1.30"]
+llm-anthropic = ["anthropic>=0.28"]
+llm-local = ["llama-cpp-python>=0.2.90"]
+vector-chroma = ["chromadb>=0.5"]
+vector-pg = ["psycopg[binary]>=3.2", "pgvector>=0.3"]
+
+[project.scripts]
+agents = "agentsos.ui.cli.app:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agentsos*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC"]
