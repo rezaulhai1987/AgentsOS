@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ModelSpec(BaseModel):
-    provider: str = Field(pattern="^(openai|anthropic|llama.cpp|hf)$")
+    # `fake` is the test escape hatch — never valid in a real agent YAML.
+    provider: str = Field(pattern="^(openai|anthropic|llama.cpp|hf|fake)$")
     id: str
     temperature: float = 0.7
     max_tokens: int = 4096
