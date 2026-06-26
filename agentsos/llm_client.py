@@ -118,6 +118,9 @@ class Completion:
     finish_reason: str = "stop"
     # Optional provider-reported metadata, kept for telemetry / cost dashboards.
     model: str = ""
+    # If the model wants to call tools, they appear here. Empty tuple means
+    # the model returned a final answer and the loop should terminate.
+    tool_calls: tuple[ToolCall, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
 
 
