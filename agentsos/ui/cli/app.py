@@ -64,8 +64,7 @@ def list_templates() -> None:
         )
     if not reg.all():
         console.print(
-            "[yellow]No templates found. Run from a directory with "
-            "agents/templates/.[/yellow]"
+            "[yellow]No templates found. Run from a directory with agents/templates/.[/yellow]"
         )
     else:
         console.print(table)
