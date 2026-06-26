@@ -24,6 +24,40 @@ adheres to [Semantic Versioning](https://semver.org/).
 - Pytest suite for manifest, orchestrator, runtime, tools, and tokenlab.
 - GitHub Actions CI (lint + test on Python 3.11/3.12).
 
+## [0.2.1] — 2026-06-26 — Think-Act-Observe loop
+
+### Added
+- Runtime now owns a real loop: Think (LLM call) → Act (dispatch every
+  `tool_call`) → Observe (append `tool` message) → repeat until the
+  model stops calling tools or a policy fires.
+- `Runtime.run` honours every policy in `manifest.policies`:
+  - `max_steps` — hard cap on loop iterations.
+  - `max_cost_usd` — checked **inline after each step**, not at exit, so
+    a runaway loop can't burn through a full `max_steps` after the
+    ceiling is already crossed.
+  - `timeout_s` — wall-clock budget via `asyncio.wait_for`.
+- `FakeClient.script([Completion, ...])` — ordered-queue scripting for
+  deterministic multi-turn loop tests (the older `record()` /
+  `record_default()` substring-match API still works for single-turn
+  tests, but breaks once the transcript grows).
+- `Completion.tool_calls` / `Completion.finish_reason` — promoted to
+  first-class fields on the `LLMClient` contract so adapters can
+  report structured function calls without overloading `content`.
+- `RunResult` — structured return from `Runtime.run` carrying the full
+  accounting picture (steps, tokens in/out, cost_usd, status, output,
+  tool_calls).
+- New `tools_builtin.py` docstrings are read at runtime to build
+  `ToolSpec.description` (first non-empty line of the docstring).
+- Trace events: `step.started`, `llm.called`, `tool.called`,
+  `tool.error`, `step.completed` — every transition a real agent run
+  produces is on the JSONL trace sink.
+
+### Fixed
+- Runtime previously called the LLM once and exited; it now loops and
+  dispatches tool calls, making agents actually executable end-to-end.
+- `ToolRegistry` no longer crashes when a manifest references an
+  unknown tool — the spec is just skipped (strict mode lands in v0.3).
+
 ## [0.2.0] — 2026-06-26 — LLM client abstraction
 
 ### Added
