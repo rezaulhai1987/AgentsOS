@@ -1,9 +1,17 @@
 """In-memory LLM client for tests.
 
-Record a response keyed by the user-prompt content, then `complete()` will
-replay it. If `tokens_in` / `tokens_out` are left at 0 in the recorded
-`Completion`, the fake computes them via `tokenlab.count` so the runtime's
-budget assertions stay meaningful.
+Three ways to script responses:
+
+1. ``record(prompt_substring, completion)`` — match by substring of the
+   last user message. Useful for single-turn tests.
+2. ``record_default(completion)`` — fallback when nothing else matches.
+3. ``script([c1, c2, ...])`` — an ordered queue; each ``complete()``
+   consumes the next entry. Useful for multi-turn loop tests where the
+   conversation grows and prompt-key matching becomes ambiguous.
+
+If the recorded ``Completion`` has ``tokens_in``/``tokens_out`` left at 0,
+the fake derives them via ``tokenlab.count`` so the runtime's cost
+accounting assertions stay truthful.
 """
 
 from __future__ import annotations
@@ -30,17 +38,22 @@ class _Call:
 class FakeClient(LLMClient):
     def __init__(self) -> None:
         self._responses: dict[str, Completion] = {}
+        self._script: list[Completion] = []
         self.calls: list[_Call] = []
 
     def record(self, key: str, completion: Completion) -> None:
-        """Map a prompt-content key to a canned response."""
+        """Map a prompt-substring key to a canned response (substring match)."""
         self._responses[key] = completion
 
     def record_default(self, completion: Completion) -> None:
-        """Catch-all response when the prompt key has no exact match.
-        Useful when a test only cares about *that* complete() was called,
-        not which prompt was used."""
+        """Catch-all response when no substring key matches."""
         self._responses["__default__"] = completion
+
+    def script(self, completions: Sequence[Completion]) -> None:
+        """Set an ordered list of responses. Each `complete()` pops the next
+        one. Lets tests drive multi-turn loops without worrying about
+        substring collisions."""
+        self._script = list(completions)
 
     async def complete(
         self,
@@ -58,14 +71,27 @@ class FakeClient(LLMClient):
                 tool_names=[t.name for t in tools],
             )
         )
-        # Find the last user message — that's the key the test recorded.
-        user_messages = [m for m in messages if m.role == "user"]
-        if not user_messages:
-            raise KeyError("FakeClient requires at least one user message")
-        key = user_messages[-1].content
-        recorded = self._responses.get(key) or self._responses.get("__default__")
-        if recorded is None:
-            raise KeyError(f"FakeClient has no recorded response for prompt {key!r}")
+
+        # Scripted responses take precedence — they make multi-turn tests
+        # deterministic regardless of how the transcript grows.
+        if self._script:
+            recorded = self._script.pop(0)
+        else:
+            user_messages = [m for m in messages if m.role == "user"]
+            if not user_messages:
+                raise KeyError("FakeClient requires at least one user message")
+            last_user = user_messages[-1].content
+            recorded = None
+            for needle, response in self._responses.items():
+                if needle == "__default__":
+                    continue
+                if needle in last_user:
+                    recorded = response
+                    break
+            if recorded is None:
+                recorded = self._responses.get("__default__")
+            if recorded is None:
+                raise KeyError(f"FakeClient has no recorded response for prompt {last_user!r}")
 
         # If the test didn't pin tokens, derive them from tokenlab so cost
         # accounting assertions remain truthful.
@@ -81,4 +107,5 @@ class FakeClient(LLMClient):
             finish_reason=recorded.finish_reason,
             model=model,
             raw=recorded.raw,
+            tool_calls=recorded.tool_calls,
         )

@@ -16,14 +16,18 @@
   router, schema minimisation, trim (98% reduction on the demo transcript)
 - [x] `tools/audit_session.py` — Hermes session auditor (standalone)
 
-## v0.2 — Single-agent runtime (next)
+## v0.2 — Single-agent runtime
 The runtime needs to do real work. Stub returns are gone after this milestone.
-- [ ] Provider-agnostic LLM client (openai / anthropic / llama.cpp)
-- [ ] Think → Act → Observe loop with policy enforcement
+- [x] Provider-agnostic LLM client (openai / anthropic / llama.cpp / ollama)
+- [x] Think → Act → Observe loop with policy enforcement
   - `max_steps`, `max_cost_usd`, `timeout_s` — abort cleanly on ceiling
-- [ ] Token accounting via tokenlab on every step (not stub word-count)
-- [ ] Tool dispatch with JSON-schema tool calls, traced per invocation
-- [ ] Checkpointing + resume (scratchpad persisted, rehydratable after crash)
+- [x] Token accounting via tokenlab on every step (not stub word-count)
+- [x] Tool dispatch with JSON-schema tool calls, traced per invocation
+- [x] Checkpointing + resume (scratchpad persisted, rehydratable after crash)
+  - **v0.2d (2026-06-28)** — `Runtime.run(checkpoint_dir=...)` writes
+    an atomic JSON scratchpad after every step; `Runtime.resume(path)`
+    rebuilds the loop without replaying the user message. 67/67 tests
+    green. See CHANGELOG [0.2.3].
 
 ## v0.3 — Orchestration
 - [ ] Wire event bus, scheduler, graph runner to real runtime
