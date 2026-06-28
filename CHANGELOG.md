@@ -4,6 +4,57 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-06-28 — Checkpoint + resume (v0.2d)
+
+### Added
+- **`Runtime.run(checkpoint_dir=Path)`** writes the full scratchpad to
+  disk after every step. The scratchpad captures the transcript
+  (`messages`), token counters (`tokens_in` / `tokens_out`), tool-call
+  log (`tool_calls_made`), running step counter, and status. Filenames
+  follow `<agent_name>-<UTC timestamp>-<short uuid>.json` so a directory
+  of checkpoints is naturally ordered and never collides on parallel
+  runs of the same agent.
+- **`Runtime.resume(checkpoint_path, manifest)`** rebuilds the
+  transcript and counters from the checkpoint JSON and continues the
+  loop. Resume does NOT replay the user message — the conversation is
+  restored verbatim from disk. A fresh `timeout_s` deadline is granted
+  on each resume so a long agent can be split across many invocations
+  without losing the budget. Resume writes its own checkpoint file
+  (`<agent_name>-resume-<UTC timestamp>-<short uuid>.json`) so the
+  original halt state is preserved for forensics.
+- **Atomic write**: `tmp` + `os.replace()`. Readers always see either
+  the old checkpoint or the new one — never a half-written file. A
+  SIGKILL mid-step leaves the previous checkpoint intact.
+- **`finish_reason="length"` with empty content** is no longer treated
+  as a final answer. The loop now appends the empty assistant turn to
+  the transcript and continues. This is required for `max_steps_reached`
+  to ever fire: without the rule, an empty truncated completion would
+  break the loop as a final answer with `status="ok"` and `output=""`.
+- **Per-call step budget**: each invocation (run OR resume) gets its own
+  `max_steps` budget, while the returned `RunResult.steps` is the
+  *total* steps across the run + any resumes. A `max_steps=1` agent
+  that halts at step 1 and is resumed with `max_steps=1` makes 1 more
+  step and reports `steps=2`.
+- **6 new tests** (`tests/test_checkpoint.py`): file exists after run,
+  payload is valid JSON with the expected shape, resume picks up at
+  the last step without replaying the user message, resume uses the
+  next scripted completion, resume of a non-existent checkpoint
+  raises `FileNotFoundError`, checkpoint writes are atomic (no `.tmp`
+  sibling left behind).
+- **Test count: 67 passing** (up from 61 in v0.2c).
+
+### Notes
+- The checkpoint JSON schema is intentionally lossy-free: every field
+  required to reconstruct a run is present, and nothing in the
+  runtime's internal state is required to resume. v0.2e will add a
+  `Runtime.checkpoint_info(path)` helper for inspecting a checkpoint
+  without resuming it.
+- `datetime.UTC` (PEP 615) replaces `datetime.timezone.utc` for the
+  python-3.11 floor in `pyproject.toml`.
+- `pathlib` I/O inside the async `resume()` is wrapped in
+  `asyncio.to_thread` to satisfy `ASYNC240`; the runtime remains a
+  thin orchestrator and does not block the event loop on disk reads.
+
 ## [0.2.2] — 2026-06-26 — Free / local LLM support (Ollama)
 
 ### Added
