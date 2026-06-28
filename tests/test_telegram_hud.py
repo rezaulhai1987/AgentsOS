@@ -1,4 +1,4 @@
-"""Tests for the JARVIS HUD formatter (pure, no network).
+"""Tests for the TAO HUD formatter (pure, no network).
 
 These tests verify that the formatter produces readable, parseable
 Telegram-friendly output. The Telegram client renders our block as
@@ -55,9 +55,9 @@ def _snap(**over: Any) -> dict[str, Any]:
     return base
 
 
-def test_render_live_has_jarvis_branding() -> None:
+def test_render_live_has_tao_branding() -> None:
     text = render_live(_snap())
-    assert "JARVIS" in text
+    assert "TAO" in text
     assert "LIVE FEED" in text
     assert "▰" in text or "▱" in text  # progress bar present
     assert "UPTIME" in text
@@ -68,7 +68,7 @@ def test_render_live_omits_goal_line_when_none() -> None:
     snap = _snap()
     snap["cost_guard"]["goal"] = None
     text = render_live(snap)
-    assert "JARVIS" in text
+    assert "TAO" in text
     # No goal block line
     assert "grow-org" not in text
 

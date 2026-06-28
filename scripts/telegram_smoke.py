@@ -4,7 +4,7 @@ Usage:
     python scripts/telegram_smoke.py
 
 Reads TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from env (loaded from ~/.hermes/.env).
-This is the one-shot operator verification: if you see the JARVIS card on
+This is the one-shot operator verification: if you see the TAO card on
 your phone, the bot token + chat_id + formatting are all valid.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ def _stub_snapshot() -> dict:
             "cost_today_usd": 0.1234,
             "goal": {
                 "id": "v0.3-bridge",
-                "name": "Telegram JARVIS bridge",
+                "name": "Telegram TAO bridge",
                 "budget": 2.0,
                 "spent": 0.5,
                 "remaining": 1.5,

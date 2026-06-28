@@ -4,6 +4,38 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.7] — 2026-06-28 — Desktop surface + TAO rename
+
+### Added
+- **`agentsos/telegram/desktop.py`** — Windows-OS-style surface for
+  the operator's phone. 310 lines of pure renderers, no network:
+  - `render_desktop(snapshot)` — single big card laid out as a
+    window: TOP BAR (clock/uptime/cost/queue/agents), LEFT PANE
+    (task tree with progress bars), RIGHT PANE (journal tail),
+    BOTTOM (next-action hint).
+  - `render_tree(rows)` — full goal tree (parent → children) with
+    status, depth indent, and progress bars.
+  - `render_files(path, base)` — directory listing with emoji
+    prefixes (📁 dirs / 📄 files + size).
+  - `render_plan(plan)` — manifest + DAG view (steps with
+    `agent=` and `deps=` columns).
+  - `render_log(lines, n)` — daemon JSONL tail.
+  - `render_help_extended()` — operator reference card covering
+    every command incl. /pause /resume /cancel /stop.
+  - `build_keyboard()` — 4-row inline Telegram keyboard (12
+    buttons + help). Designed to fit any phone screen without
+    scrolling. Button taps emit `cmd:<name>` callback data that
+    the bridge will dispatch to the same renderers.
+- **Brand rename JARVIS → TAO** across the whole Telegram stack
+  (bot.py docstring, hud.py docstring + headers + help text,
+  tests, smoke script). No "JARVIS" string remains in the source
+  tree — verified with `grep -r "JARVIS" agentsos/`.
+
+### Verified
+- `pytest -q` — 138/138 passed in 31.7s.
+- `desktop.py` imports cleanly under the package init.
+- `grep -r "JARVIS" agentsos/` returns zero matches.
+
 ## [0.3.6] — 2026-06-28 — Crash-resilient work journal + Telegram bridge
 
 ### Added
@@ -25,7 +57,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   head (branch, current_task_id, next_task_id, tasks count, open
   PRs) plus a journal entry count.
 - **`agentsos/telegram/bridge.py`** — the single glue point between
-  the daemon and the JARVIS Telegram bot. `attach_bridge(token,
+  the daemon and the TAO Telegram bot. `attach_bridge(token,
   chat_id)` returns an `extra_task` factory that subscribes the
   notifier to watchdog + cost-guard and starts the long-poll
   `TelegramBot`. Reads `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
@@ -41,7 +73,7 @@ adheres to [Semantic Versioning](https://semver.org/).
 ### Notes
 - The journal is the spine for `tail -f`/Telegram `/log` and for
   `Registry.compute_next_actions()` after a crash. The registry is
-  the spine for `agents status` and the JARVIS `/live` card. Both
+  the spine for `agents status` and the TAO `/live` card. Both
   live under `<state_dir>/` so `restart` resumes from disk with no
   operator intervention.
 - The Telegram bridge does NOT swallow exceptions silently — any

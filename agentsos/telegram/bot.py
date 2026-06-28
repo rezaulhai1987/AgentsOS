@@ -1,4 +1,4 @@
-"""Telegram bridge — bi-directional operator surface (Iron Man / JARVIS).
+"""Telegram bridge — bi-directional operator surface (calm enterprise HUD / TAO).
 
 This module is split into two halves so we can unit-test the parts
 that don't need a network:

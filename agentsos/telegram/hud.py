@@ -1,11 +1,11 @@
-"""JARVIS-style dashboard formatter (pure, no network).
+"""TAO-style dashboard formatter (pure, no network).
 
 Lives in `agentsos/telegram/hud.py` (subpackage so we can ship a thin
 bot layer in `bot.py` separately). The formatter is intentionally
 side-effect-free — given a snapshot dict it returns a string. That
 makes it trivial to unit-test.
 
-Design language (latest Iron Man HUD / JARVIS):
+Design language (calm enterprise HUD / TAO):
 
   - Cyan `#1FB6FF` brackets + amber `#FFB300` highlights (we use ASCII
     glyphs for terminal-first readability; the Telegram client will
@@ -52,7 +52,7 @@ def _now() -> str:
 
 def header(title: str, subtitle: str = "") -> str:
     bar = "─" * max(8, 36 - len(title))
-    head = f"┌─ ⟁ JARVIS // {title} {bar}"
+    head = f"┌─ ⟁ TAO // {title} {bar}"
     if subtitle:
         head += f"\n│  {subtitle}"
     head += f"\n│  ⏱ {_now()}"
@@ -246,7 +246,7 @@ def render_alert(topic: str, payload: dict[str, Any]) -> str:
 # --- /help ----------------------------------------------------------
 
 HELP_TEXT = (
-    "⟁ JARVIS COMMANDS\n"
+    "⟁ TAO COMMANDS\n"
     "────────────────────────────\n"
     "/live     Live status card (auto-updating)\n"
     "/status   Full daemon telemetry\n"
