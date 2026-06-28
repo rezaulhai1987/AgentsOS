@@ -60,6 +60,83 @@ class TelegramUnavailableError(RuntimeError):
     pass
 
 
+# ---------------------------------------------------------------------
+# Live-loop job registry. v0.3.9: each /live invocation gets a stable
+# job_id, edits the same message every tick (rate-limited), and exits
+# when cancelled by /stop, when the daemon pauses, or when the loop
+# task is cancelled by the registry. The registry is the central
+# truth — there can be at most `max_jobs_per_chat` concurrent loops
+# per chat_id.
+# ---------------------------------------------------------------------
+
+
+@dataclass
+class LiveJob:
+    job_id: str
+    chat_id: str
+    message_id: int | None = None
+    last_text: str = ""
+    started_at: float = field(default_factory=time.monotonic)
+    last_edit_at: float = 0.0
+    ticks: int = 0
+    task: asyncio.Task[None] | None = None
+
+    def too_fast(self, now: float, min_interval_s: float) -> bool:
+        return (now - self.last_edit_at) < min_interval_s
+
+    def text_changed(self, new: str) -> bool:
+        return new != self.last_text
+
+
+class LiveJobRegistry:
+    """Track /live auto-refresh loops. One job per chat_id by default."""
+
+    def __init__(self, max_jobs_per_chat: int = 1) -> None:
+        self._jobs: dict[str, LiveJob] = {}
+        self.max_jobs_per_chat = max_jobs_per_chat
+
+    def get(self, chat_id: str) -> LiveJob | None:
+        return self._jobs.get(chat_id)
+
+    def active(self) -> list[LiveJob]:
+        return [j for j in self._jobs.values() if j.task is not None and not j.task.done()]
+
+    def start(
+        self,
+        chat_id: str,
+        message_id: int | None = None,
+        job_id: str | None = None,
+    ) -> LiveJob:
+        # Replace any existing job for this chat (last /live wins).
+        old = self._jobs.get(chat_id)
+        if old is not None and old.task is not None and not old.task.done():
+            old.task.cancel()
+        job = LiveJob(
+            job_id=job_id or f"live-{chat_id}-{int(time.time() * 1000)}",
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+        self._jobs[chat_id] = job
+        return job
+
+    def stop(self, chat_id: str) -> bool:
+        job = self._jobs.pop(chat_id, None)
+        if job is None or job.task is None:
+            return False
+        if not job.task.done():
+            job.task.cancel()
+        return True
+
+    def stop_all(self) -> int:
+        n = 0
+        for job in list(self._jobs.values()):
+            if job.task is not None and not job.task.done():
+                job.task.cancel()
+                n += 1
+        self._jobs.clear()
+        return n
+
+
 # --- notifier (no network; tests this without PTB) ------------------
 
 @dataclass
@@ -202,17 +279,92 @@ class TelegramBot:
     snapshot_fn: Callable[[], dict[str, Any]]
     on_command: Callable[[str, list[str]], Awaitable[str]] | None = None
     notifier: TelegramNotifier | None = None
+    live_interval_s: float = 30.0  # v0.3.9 /live auto-refresh tick
+    live_min_edit_s: float = 5.0   # throttle Telegram editMessageText calls
     _app: Any = field(default=None, init=False, repr=False)
     _poll_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _live_message_id: dict[str, int] = field(default_factory=dict, init=False, repr=False)
+    live_registry: LiveJobRegistry = field(
+        default_factory=LiveJobRegistry, init=False, repr=False
+    )
+
+    async def _run_live_loop(self, chat_id: str, message_id: int) -> None:
+        """v0.3.9: edit a single message every live_interval_s until cancelled.
+
+        Honours the pause_event if the daemon wired one (via the snapshot's
+        `paused` field); silently sleeps on rate limit; never raises.
+        """
+        job = self.live_registry.get(chat_id)
+        if job is None:
+            return
+        job.message_id = message_id
+        try:
+            while True:
+                # Honour daemon pause: snapshot it and skip edits while paused.
+                try:
+                    snap = self.snapshot_fn()
+                except Exception:  # pragma: no cover  (defensive)
+                    snap = {}
+                paused = bool(snap.get("paused", False)) if isinstance(snap, dict) else False
+                now = time.monotonic()
+                if not paused and (job.too_fast(now, self.live_min_edit_s) or job.text_changed(render_live(snap)) is False):
+                    # Skip: too fast AND nothing changed.
+                    if job.too_fast(now, self.live_min_edit_s) and not job.text_changed(render_live(snap)):
+                        await asyncio.sleep(self.live_interval_s)
+                        continue
+                if not paused:
+                    text = render_live(snap)
+                    if job.text_changed(text) or job.last_edit_at == 0.0:
+                        try:
+                            await self._app.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=f"```\n{text}\n```",
+                                parse_mode="MarkdownV2",
+                            )
+                            job.last_text = text
+                            job.last_edit_at = time.monotonic()
+                            job.ticks += 1
+                        except Exception as exc:  # pragma: no cover  (network)
+                            log.warning("live edit failed: %s", exc)
+                            await asyncio.sleep(self.live_interval_s)
+                            continue
+                await asyncio.sleep(self.live_interval_s)
+        except asyncio.CancelledError:
+            log.info("live loop cancelled (chat=%s job=%s)", chat_id, job.job_id)
+            raise
 
     def _build(self) -> None:
         _, Application, CommandHandler, ContextTypes = _import_ptb()
 
         async def cmd_live(update: Any, context: Any) -> None:
+            chat_id = str(update.effective_chat.id)
             snap = self.snapshot_fn()
             text = render_live(snap)
-            await update.effective_message.reply_text(f"```\n{text}\n```", parse_mode="MarkdownV2")
+            sent = await update.effective_message.reply_text(
+                f"```\n{text}\n```", parse_mode="MarkdownV2"
+            )
+            # Start (or replace) the auto-refresh loop for this chat.
+            job = self.live_registry.start(chat_id=chat_id, message_id=sent.message_id)
+            job.last_text = text
+            job.last_edit_at = time.monotonic()
+            job.ticks = 1
+            job.task = asyncio.create_task(
+                self._run_live_loop(chat_id, sent.message_id),
+                name=f"live-{chat_id}",
+            )
+            await update.effective_message.reply_text(
+                f"```\n/live auto-refresh every {self.live_interval_s:.0f}s — /live_stop to end\n```",
+                parse_mode="MarkdownV2",
+            )
+
+        async def cmd_live_stop(update: Any, context: Any) -> None:
+            chat_id = str(update.effective_chat.id)
+            stopped = self.live_registry.stop(chat_id)
+            await update.effective_message.reply_text(
+                f"```\n{'live stopped' if stopped else 'no live loop running'}\n```",
+                parse_mode="MarkdownV2",
+            )
 
         async def cmd_status(update: Any, context: Any) -> None:
             text = render_status(self.snapshot_fn())
@@ -233,10 +385,14 @@ class TelegramBot:
                 reply = await self.on_command(cmd, args)
             except Exception as exc:
                 reply = f"⚠️ error: {exc}"
+            # /pause and /shutdown also cancel live loops.
+            if cmd in ("pause", "cancel", "shutdown", "stop"):
+                self.live_registry.stop(str(update.effective_chat.id))
             await update.effective_message.reply_text(f"```\n{reply}\n```", parse_mode="MarkdownV2")
 
         self._app = Application.builder().token(self.token).build()
         self._app.add_handler(CommandHandler("live", cmd_live))
+        self._app.add_handler(CommandHandler("live_stop", cmd_live_stop))
         self._app.add_handler(CommandHandler("status", cmd_status))
         self._app.add_handler(CommandHandler("help", cmd_help))
         for cmd in ("goals", "cost", "add", "pause", "resume", "cancel", "shutdown"):
@@ -258,6 +414,8 @@ class TelegramBot:
         log.info("telegram bot polling started (chat_id=%s)", self.chat_id)
 
     async def stop(self) -> None:
+        # Cancel any in-flight /live auto-refresh loops first.
+        self.live_registry.stop_all()
         if self._app is None:
             return
         try:

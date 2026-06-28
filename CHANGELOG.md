@@ -4,6 +4,30 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.9] — 2026-06-28 — /live auto-refresh + LiveJobRegistry
+
+### Added
+- **`LiveJobRegistry` + `LiveJob`** in `agentsos/telegram/bot.py` —
+  one auto-refresh loop per chat_id, deterministic replace-on-restart,
+  central `stop(chat_id)` / `stop_all()` so /pause and /shutdown can
+  cancel them deterministically.
+- **`/live` handler** now starts a `asyncio.create_task` that calls
+  `editMessageText` every `live_interval_s` (default 30s) on the
+  same message. Honours `paused: bool` from `Daemon.snapshot()` so
+  pausing the daemon also freezes the dashboard. Throttled by
+  `live_min_edit_s` (default 5s) so a fast-changing snapshot can't
+  spam Telegram's edit rate limit.
+- **`/live_stop` command** cancels the loop for the calling chat.
+- **`/pause`, `/cancel`, `/shutdown`, `/stop` dispatch** now also
+  cancel any active live loop on that chat — pause and stop are
+  unified from the operator's perspective.
+- **`TelegramBot.stop()`** calls `live_registry.stop_all()` so an
+  always-on daemon can't leak /live tasks across a restart.
+- **7 new tests** in `tests/test_telegram_live.py` — registry start,
+  replace, stop, stop_all, throttle helpers, and a full live-loop
+  integration test with a fake `editMessageText` recorder that also
+  asserts the pause flag suppresses all edits. 151/151 green.
+
 ## [0.3.8] — 2026-06-28 — Daemon kill-switch (Telegram-controlled)
 
 ### Added
