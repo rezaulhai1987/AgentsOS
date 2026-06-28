@@ -67,11 +67,32 @@ def attach_bridge(
             return
 
         notifier = TelegramNotifier(chat_id=cid)
+
+        # v0.3.8: wire on_command so /pause /resume /stop reach the
+        # daemon kill-switch. The handler is intentionally tiny —
+        # it just dispatches on the verb and returns a short
+        # human reply. The bot re-uses the rendered snapshot on
+        # state-change confirmations.
+        async def _on_command(cmd: str, args: list[str]) -> str:
+            reason = " ".join(args).strip() or "telegram"
+            if cmd == "pause":
+                await daemon.pause(reason=reason)
+                return f"⏸ Paused ({reason})."
+            if cmd == "resume":
+                await daemon.resume(reason=reason)
+                return f"▶ Resumed ({reason})."
+            if cmd in ("cancel", "shutdown", "stop"):
+                # Schedule shutdown so we can reply first, then stop.
+                asyncio.create_task(daemon.shutdown(reason=reason))
+                return "🛑 Shutdown scheduled."
+            return f"(unhandled: {cmd})"
+
         bot = TelegramBot(
             token=tok,
             chat_id=cid,
             snapshot_fn=daemon.snapshot,
             notifier=notifier,
+            on_command=_on_command,
         )
         attach_to_daemon(daemon, notifier)
 

@@ -4,6 +4,32 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.8] — 2026-06-28 — Daemon kill-switch (Telegram-controlled)
+
+### Added
+- **`Daemon.pause() / resume() / shutdown()`** — event-driven kill-switch
+  backed by `asyncio.Event`. The `Watchdog` now accepts an optional
+  `pause_event` and blocks its tick loop while paused. The heartbeat
+  also honors pause and includes `paused: bool` in its payload.
+- **`agents daemon {pause,resume,stop,start,status}`** — Typer CLI group
+  that writes a one-shot `control.json` file under the state dir; the
+  daemon's control-file poller consumes it and calls the right method.
+  `daemon start --background` detaches via Windows `DETACHED_PROCESS`
+  flags and is ready to be launched from Task Scheduler or startup.
+- **Telegram bridge** now wires `on_command=` so `/pause`, `/resume`,
+  `/stop`, `/shutdown`, and `/cancel` actually reach the daemon (they
+  used to fall through to `(no command handler wired)`).
+- **Snapshot** gains `paused: bool` so dashboards can render state.
+- **6 new tests** (`test_daemon_pause_*`, `test_daemon_snapshot_includes_paused`,
+  `test_daemon_shutdown_alias_writes_journal`, `test_bridge_on_command_calls_daemon_kill_switch`).
+  144/144 green.
+
+### Background-detached runner
+The CLI writes `<state_dir>/../.hermes/daemon_runner.py` and spawns
+it via `python.exe` with `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`.
+That runner registers `attach_bridge()` as an extra task, so a
+detached daemon comes up with Telegram already wired.
+
 ## [0.3.7] — 2026-06-28 — Desktop surface + TAO rename
 
 ### Added

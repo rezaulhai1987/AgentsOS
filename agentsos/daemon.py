@@ -58,10 +58,18 @@ class Daemon:
 
         self.store = Store(config.state_dir / "state.db")
         self.cost_guard = CostGuard(self.store, daily_ceiling_usd=config.daily_ceiling_usd)
+        # Lifecycle flags (v0.3.8). pause() sets _pause and the
+        # heartbeat loop honors it; extra tasks should poll
+        # `await daemon.pause_event.wait()` between ticks if they
+        # want to respect pause. resume() clears it. stop() takes
+        # precedence and terminates everything.
+        self._pause = asyncio.Event()
+        self._pause.set()  # not paused by default
         self.watchdog = Watchdog(
             self.store,
             interval_s=config.watchdog_interval_s,
             stuck_threshold_s=config.stuck_threshold_s,
+            pause_event=self._pause,
         )
         # Crash-resilient work journal + live registry (v0.3.6).
         # The journal is the spine for "what happened" and the
@@ -125,9 +133,14 @@ class Daemon:
 
     async def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():
+            # Honor pause: heartbeat sleeps but doesn't write. Cost
+            # guards still tick (so we don't blow the daily ceiling
+            # while paused), but the daemon is visibly "asleep".
+            await self._pause.wait()
             await self._log_event(
                 "daemon.heartbeat",
-                {"uptime_s": self.uptime_s(), "health": self.store.healthcheck()},
+                {"uptime_s": self.uptime_s(), "health": self.store.healthcheck(),
+                 "paused": self.is_paused()},
             )
             try:
                 await asyncio.wait_for(
@@ -195,10 +208,39 @@ class Daemon:
         start = datetime.fromisoformat(self.started_at)
         return (datetime.now(UTC) - start).total_seconds()
 
+    # --- kill-switch (v0.3.8) ---
+    def is_paused(self) -> bool:
+        return not self._pause.is_set()
+
+    @property
+    def pause_event(self) -> asyncio.Event:
+        """Tasks can `await daemon.pause_event.wait()` to block while paused."""
+        return self._pause
+
+    async def pause(self, reason: str = "operator") -> None:
+        if not self._pause.is_set():
+            return  # already paused
+        self._pause.clear()
+        self.journal.append("daemon.pause", {"reason": reason})
+        log.info("daemon paused (reason=%s)", reason)
+
+    async def resume(self, reason: str = "operator") -> None:
+        if self._pause.is_set():
+            return  # not paused
+        self._pause.set()
+        self.journal.append("daemon.resume", {"reason": reason})
+        log.info("daemon resumed (reason=%s)", reason)
+
+    async def shutdown(self, reason: str = "operator") -> None:
+        """Alias for stop() that also writes a journal entry."""
+        self.journal.append("daemon.shutdown", {"reason": reason})
+        await self.stop()
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "started_at": self.started_at,
             "uptime_s": self.uptime_s(),
+            "paused": self.is_paused(),
             "state_dir": str(self.config.state_dir),
             "watchdog": self.watchdog.stats(),
             "cost_guard": self.cost_guard.snapshot(),

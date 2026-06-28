@@ -46,6 +46,7 @@ class Watchdog:
         store: Store,
         interval_s: float = 30.0,
         stuck_threshold_s: float = 600.0,
+        pause_event: asyncio.Event | None = None,
     ) -> None:
         self.store = store
         self.interval_s = interval_s
@@ -55,6 +56,9 @@ class Watchdog:
         self._handlers: dict[str, list[EventHandler]] = {}
         self._last_tick: str | None = None
         self._tick_count = 0
+        # Optional pause gate (v0.3.8). When set, ticks wait until
+        # the event is set — same semantics as Daemon.pause_event.
+        self._pause = pause_event
 
     # --- subscription API ---
 
@@ -91,6 +95,12 @@ class Watchdog:
     async def _run(self) -> None:
         log.info("watchdog started (interval=%ss, stuck=%ss)", self.interval_s, self.stuck_threshold_s)
         while not self._stop.is_set():
+            if self._pause is not None:
+                try:
+                    await asyncio.wait_for(self._pause.wait(), timeout=self.interval_s)
+                    # pause cleared → fall through and tick
+                except asyncio.TimeoutError:
+                    continue  # still paused, loop
             try:
                 await self.tick()
             except Exception as exc:  # pragma: no cover — defensive
