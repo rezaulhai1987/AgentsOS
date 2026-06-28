@@ -4,6 +4,73 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.11] — 2026-06-28 — Telegram AccessGuard (PIN + TOTP + audit)
+
+### Added
+- **`agentsos/telegram/guard.py`** — new `AccessGuard` class enforcing
+  four concentric gates before any handler runs:
+  1. **Chat allowlist** — only `RHAIONOS_ALLOWED_CHAT_IDS` are answered
+     (default: just Reza's `8141002315`). Anyone else gets a silent
+     drop + audit log entry.
+  2. **PIN unlock** — `/auth <PIN>` must match `RHAIONOS_TG_PIN` to
+     unlock admin commands. 3 failures → 24h lockout per chat.
+  3. **Per-command TOTP** (optional) — RFC 6238 6-digit codes. If
+     `RHAIONOS_TG_TOTP` is set, every admin command must be prefixed
+     with the current code, e.g. `/123456 goal list`.
+  4. **Rate limit** — `RHAIONOS_TG_RATE_LIMIT` (default 30) commands per
+     rolling hour per chat.
+- **`SecurityAudit`** — append-only JSONL log at
+  `<state_dir>/security.log.jsonl` recording every decision (allowlist
+  deny, PIN ok/fail/lockout, TOTP ok/fail, rate-limit hit, accept).
+- **Constant-time TOTP verify** using `hmac.compare_digest`.
+- **Bot wiring** — `TelegramBot.guard` field; `cmd_dispatch` runs
+  the guard check before any handler. `/auth` added to the
+  command handler list.
+- **Bridge wiring** — `attach_bridge()` now creates an `AccessGuard`
+  via `AccessGuard.from_env(audit=...)` and passes it to the bot.
+- **Tests** — `tests/test_telegram_guard.py` (14 tests):
+  allowlist, PIN ok/fail/lockout, TOTP roundtrip + slash-prefix
+  handling, rate-limit, audit-log captures all decisions,
+  `RHAIONOS_TRUST_DEV=1` allow-all mode for air-gapped tests.
+
+### Security model
+- Telegram itself is the biometric gate — only the phone with face/touch
+  unlock can open the app.
+- Compromised token + leaked chat_id alone: dropped silently.
+- + PIN leaked: 24h lockout after 3 tries.
+- + PIN + 6-digit code reused from a screenshot: code expires every 30s.
+
+## [0.3.10] — 2026-06-28 — /goal parser + Telegram wiring + CLI subapp
+
+### Added
+- **`agentsos/goal_parser.py`** (300 lines) — pure-function
+  `GoalCommandParser` + `GoalOp` dataclass + `run_goal_command(reg,
+  text)` helper. Supports `add / list / start / done / fail / remove
+  / note` with `--priority`, `--budget`, `--branch`, `--deps`,
+  `--notes`, `--status`, `--limit` flags. shlex-aware for
+  quoted multi-word titles (`/goal add "Ship v0.4 — fast"`).
+- **Telegram wiring** — `TelegramBot.goal_runner` field +
+  `cmd_dispatch` routes `/goal` BEFORE `on_command` so the
+  parser handles the full tail and quoted titles survive.
+- **CLI subapp** — `agents goal {add,list,start,done,fail,remove,note}`
+  in `agentsos/ui/cli/app.py`. Registry rooted at
+  `<state_dir>/work_registry.json` so daemon + CLI share state.
+- **Daemon runner wiring** — `_DAEMON_RUNNER_PY` now builds a
+  shared Registry and passes `registry_factory` to `attach_bridge`
+  so `/goal` on Telegram and `agents goal ...` on CLI write to the
+  same file.
+- **Bridge API** — `attach_bridge(token, chat_id, registry_factory)`
+  gained the optional `registry_factory` parameter; the factory
+  pattern lets tests inject temp registries.
+- **Tests** — `tests/test_goal_parser.py` (22 tests): parser
+  grammar, registry binding (add/list/filter/start/done/fail/note/
+  remove/ambiguous-prefix/no-match), top-level dispatcher (bare
+  `goal`, quoted special-char titles, parse errors, unknown verbs).
+
+### Fixed
+- `_strip_totp` accepts `/123456 goal list` (slash-prefix) for
+  future TOTP gate — pre-emptively landed with the parser release.
+
 ## [0.3.9] — 2026-06-28 — /live auto-refresh + LiveJobRegistry
 
 ### Added

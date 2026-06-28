@@ -281,6 +281,13 @@ class TelegramBot:
     notifier: TelegramNotifier | None = None
     live_interval_s: float = 30.0  # v0.3.9 /live auto-refresh tick
     live_min_edit_s: float = 5.0   # throttle Telegram editMessageText calls
+    # v0.3.10: optional goal-parser dispatcher. If set, /goal is routed
+    # here BEFORE on_command so quoted titles survive intact.
+    goal_runner: Callable[[str], str] | None = None
+    # v0.3.11: AccessGuard instance. When set, every command is
+    # checked against allowlist + PIN + TOTP + rate-limit BEFORE any
+    # handler runs. None means "no guard" (dev / tests only).
+    guard: Any = None
     _app: Any = field(default=None, init=False, repr=False)
     _poll_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _live_message_id: dict[str, int] = field(default_factory=dict, init=False, repr=False)
@@ -375,12 +382,35 @@ class TelegramBot:
             await update.effective_message.reply_text(f"```\n{text}\n```", parse_mode="MarkdownV2")
 
         async def cmd_dispatch(update: Any, context: Any) -> None:
+            raw = update.effective_message.text
+            head = raw.split(maxsplit=1)[0].lstrip("/").split("@")[0]
+            cmd = head
+            rest = raw.split(maxsplit=1)[1] if " " in raw else ""
+            chat_id = int(update.effective_chat.id)
+
+            # v0.3.11: Security guard (allowlist + PIN + TOTP + rate).
+            if self.guard is not None:
+                verdict = self.guard.check(chat_id, cmd, first_message_text=raw)
+                if not verdict.accepted:
+                    if verdict.reply:
+                        await update.effective_message.reply_text(verdict.reply)
+                    return  # silent drop when reply is None
+
+            # /goal uses shlex-aware parser; route through goal_runner
+            # so titles like "Ship v0.4 — fast" survive intact.
+            if cmd == "goal" and self.goal_runner is not None:
+                try:
+                    reply = self.goal_runner(rest)
+                except Exception as exc:
+                    reply = f"⚠️ goal error: {exc}"
+                await update.effective_message.reply_text(
+                    f"```\n{reply}\n```", parse_mode="MarkdownV2"
+                )
+                return
             if self.on_command is None:
                 await update.effective_message.reply_text("(no command handler wired)")
                 return
-            cmd = update.effective_message.text.split(maxsplit=1)[0].lstrip("/").split("@")[0]
-            args = (update.effective_message.text.split(maxsplit=1)[1].split()
-                    if " " in update.effective_message.text else [])
+            args = rest.split() if rest else []
             try:
                 reply = await self.on_command(cmd, args)
             except Exception as exc:
@@ -395,7 +425,8 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("live_stop", cmd_live_stop))
         self._app.add_handler(CommandHandler("status", cmd_status))
         self._app.add_handler(CommandHandler("help", cmd_help))
-        for cmd in ("goals", "cost", "add", "pause", "resume", "cancel", "shutdown"):
+        for cmd in ("goals", "cost", "add", "goal", "pause", "resume",
+                    "cancel", "shutdown", "auth"):
             self._app.add_handler(CommandHandler(cmd, cmd_dispatch))
 
         # Wire the notifier (if any) to send_text.

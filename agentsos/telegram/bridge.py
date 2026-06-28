@@ -39,12 +39,18 @@ def _read_env(name: str) -> str:
 def attach_bridge(
     token: str | None = None,
     chat_id: str | None = None,
+    registry_factory: Callable[[], Any] | None = None,
 ) -> Callable[[Any], Awaitable[None]]:
     """Return an async task factory for `DaemonConfig.extra_tasks`.
 
     Reads `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` from env if not
     passed explicitly. Returns a no-op factory if either is missing
     or the `python-telegram-bot` package is not installed.
+
+    `registry_factory` (optional) — callable that returns a fresh
+    `agentsos.work_registry.Registry` each time it's called. If
+    provided, `/goal` (and the CLI `agents goal ...`) will be wired
+    up. The factory pattern lets tests inject a temp registry.
     """
     tok = (token or _read_env("TELEGRAM_BOT_TOKEN")).strip()
     cid = (chat_id or _read_env("TELEGRAM_CHAT_ID")).strip()
@@ -87,12 +93,36 @@ def attach_bridge(
                 return "🛑 Shutdown scheduled."
             return f"(unhandled: {cmd})"
 
+        # v0.3.10: optional /goal handler. If a registry_factory was
+        # provided, build a goal_runner that maps a slash-command's
+        # tail text to a friendly reply using the shared parser.
+        goal_runner: Callable[[str], str] | None = None
+        if registry_factory is not None:
+            try:
+                from agentsos.goal_parser import run_goal_command
+            except Exception as exc:  # pragma: no cover
+                log.warning("goal_parser import failed: %s", exc)
+            else:
+                def _goal_runner(text: str) -> str:
+                    return run_goal_command(registry_factory(), text)
+
+                goal_runner = _goal_runner
+
+        # v0.3.11: AccessGuard — hard-codes the allowlist to the
+        # primary operator chat unless RHAIONOS_ALLOWED_CHAT_IDS
+        # widens it. PIN + TOTP loaded from env. Audit log lands in
+        # <state_dir>/security.log.jsonl.
+        from agentsos.telegram.guard import AccessGuard, build_default_audit
+        guard = AccessGuard.from_env(audit=build_default_audit(state_dir=daemon.state_dir))
+
         bot = TelegramBot(
             token=tok,
             chat_id=cid,
             snapshot_fn=daemon.snapshot,
             notifier=notifier,
             on_command=_on_command,
+            goal_runner=goal_runner,
+            guard=guard,
         )
         attach_to_daemon(daemon, notifier)
 

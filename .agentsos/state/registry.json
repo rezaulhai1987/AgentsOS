@@ -1,0 +1,15 @@
+{
+  "agent": "agentsos-builder",
+  "project": "AgentsOS",
+  "branch": "",
+  "started_at": "2026-06-28T13:29:01.620849+00:00",
+  "updated_at": "2026-06-28T13:29:01.620849+00:00",
+  "current_task_id": "",
+  "next_task_id": "",
+  "head_commit": "",
+  "prs_open": [],
+  "test_run_total": 0,
+  "test_run_passed": 0,
+  "daemon_state": {},
+  "tasks": {}
+}

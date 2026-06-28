@@ -301,6 +301,7 @@ import asyncio, json, sys
 from pathlib import Path
 from agentsos.daemon import Daemon, DaemonConfig
 from agentsos.telegram.bridge import attach_bridge
+from agentsos.work_registry import Registry
 
 async def control_loop(d, sd):
     while not d._stop.is_set():
@@ -325,8 +326,15 @@ async def control_loop(d, sd):
 async def main():
     sd = Path(sys.argv[1])
     ceiling = float(sys.argv[2])
+    # v0.3.10: shared Registry factory for /goal on Telegram +
+    # `agents goal ...` CLI. Same file = same view.
+    reg_path = sd / "work_registry.json"
+
+    def reg_factory():
+        return Registry(path=reg_path)
+
     cfg = DaemonConfig(state_dir=sd, daily_ceiling_usd=ceiling,
-                       extra_tasks=[attach_bridge()])
+                       extra_tasks=[attach_bridge(registry_factory=reg_factory)])
     d = Daemon(cfg)
     await d.start()
     await asyncio.gather(d.wait(), control_loop(d, sd))
@@ -334,6 +342,126 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 """
+
+
+# --- goal control (v0.3.10) --------------------------------------------
+
+goal_app = typer.Typer(help="Goal queue — add / list / start / done / fail / remove / note")
+app.add_typer(goal_app, name="goal")
+
+
+def _goal_registry(state_path: Path | None) -> Any:
+    """Build a Registry rooted at the requested path.
+
+    Defaults to `.agentsos/state/work_registry.json` so the CLI works
+    alongside the daemon without extra config.
+    """
+    from ...work_registry import Registry
+    if state_path is None:
+        state_path = Path.cwd() / ".agentsos" / "state" / "work_registry.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    return Registry(path=state_path)
+
+
+@goal_app.command("add")
+def goal_add(
+    title: str = typer.Argument(..., help="Goal title (may contain spaces)"),
+    budget: float | None = typer.Option(None, "--budget", help="Cost budget USD"),
+    branch: str = typer.Option("", "--branch", help="Git branch tag"),
+    deps: str = typer.Option("", "--deps", help="Comma-separated dep ids"),
+    notes: str = typer.Option("", "--notes", help="Free-form notes"),
+    state: Path | None = typer.Option(None, "--state", help="Override registry path"),
+) -> None:
+    """Add a goal to the registry."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    text = f"add {title}"
+    if budget is not None:
+        text += f" --budget {budget}"
+    if branch:
+        text += f" --branch {branch}"
+    if deps:
+        text += f" --deps {deps}"
+    if notes:
+        text += f" --notes {notes}"
+    console.print(run_goal_command(reg, text))
+
+
+@goal_app.command("list")
+def goal_list(
+    status: str = typer.Option("", "--status", help="pending|in_progress|done|failed|blocked"),
+    limit: int = typer.Option(25, "--limit", "-n"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """List goals (newest first)."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    parts = ["list", "--limit", str(limit)]
+    if status:
+        parts += ["--status", status]
+    console.print(run_goal_command(reg, " ".join(parts)))
+
+
+@goal_app.command("start")
+def goal_start(
+    id_prefix: str = typer.Argument(..., help="Goal id prefix (8+ chars)"),
+    notes: str = typer.Option("", "--notes"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """Mark a goal as in-progress."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    text = f"start {id_prefix}" + (f" --notes {notes}" if notes else "")
+    console.print(run_goal_command(reg, text))
+
+
+@goal_app.command("done")
+def goal_done(
+    id_prefix: str = typer.Argument(..., help="Goal id prefix"),
+    notes: str = typer.Option("", "--notes"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """Mark a goal as done."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    text = f"done {id_prefix}" + (f" --notes {notes}" if notes else "")
+    console.print(run_goal_command(reg, text))
+
+
+@goal_app.command("fail")
+def goal_fail(
+    id_prefix: str = typer.Argument(..., help="Goal id prefix"),
+    notes: str = typer.Option("", "--notes"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """Mark a goal as failed."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    text = f"fail {id_prefix}" + (f" --notes {notes}" if notes else "")
+    console.print(run_goal_command(reg, text))
+
+
+@goal_app.command("remove")
+def goal_remove(
+    id_prefix: str = typer.Argument(..., help="Goal id prefix"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """Remove a goal from the registry."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    console.print(run_goal_command(reg, f"remove {id_prefix}"))
+
+
+@goal_app.command("note")
+def goal_note(
+    id_prefix: str = typer.Argument(..., help="Goal id prefix"),
+    text: str = typer.Argument(..., help="Note text to append"),
+    state: Path | None = typer.Option(None, "--state"),
+) -> None:
+    """Append a note to a goal."""
+    from ...goal_parser import run_goal_command
+    reg = _goal_registry(state)
+    console.print(run_goal_command(reg, f"note {id_prefix} --notes {text}"))
 
 
 if __name__ == "__main__":

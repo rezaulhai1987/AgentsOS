@@ -36,11 +36,21 @@ def _daemon_stub() -> object:
         def __init__(self) -> None:
             self.watchdog = _StubBus()
             self.cost_guard = _StubBus()
+            # v0.3.11: bridge now reads state_dir for the audit log.
+            import tempfile
+            self.state_dir = type("S", (), {"__init__": lambda s: None})()  # placeholder
+            self.state_dir = _mk_tmp_dir()
 
         def snapshot(self) -> dict:
             return {"uptime_s": 0.0, "watchdog": {"running": False}}
 
     return _StubDaemon()
+
+
+def _mk_tmp_dir():
+    from pathlib import Path
+    import tempfile
+    return Path(tempfile.mkdtemp(prefix="bridge_audit_"))
 
 
 def test_attach_bridge_returns_callable() -> None:
