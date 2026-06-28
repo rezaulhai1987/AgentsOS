@@ -4,6 +4,54 @@ All notable changes to AgentsOS are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.6] — 2026-06-28 — Crash-resilient work journal + Telegram bridge
+
+### Added
+- **`agentsos/work_registry.py`** — crash-resilient state spine (v0.3.5+).
+  - `Journal` writes every daemon event as a JSONL line with atomic
+    `os.replace` + `fsync`. A SIGKILL mid-step leaves the previous
+    entry intact; a corrupted trailing line is dropped on read.
+  - `Registry` is the "where are we right now" snapshot — current
+    task, next task, open PRs, head commit. Atomic flush + `.bak`
+    recovery so a partial write never poisons the registry file.
+  - 26/26 tests in `test_work_registry.py` + `test_telegram_hud.py`
+    cover enum-value normalization, empty-list guards, and initial
+    snapshot flush.
+- **Daemon ↔ work_registry wiring** (v0.3.6). `Daemon.__init__` now
+  creates a `Journal` at `<state_dir>/journal.jsonl` and a `Registry`
+  at `<state_dir>/registry.json`. Every event written via
+  `_log_event` is mirrored into the journal so a crash-resume sees
+  the full timeline. `Daemon.snapshot()` now exposes the registry
+  head (branch, current_task_id, next_task_id, tasks count, open
+  PRs) plus a journal entry count.
+- **`agentsos/telegram/bridge.py`** — the single glue point between
+  the daemon and the JARVIS Telegram bot. `attach_bridge(token,
+  chat_id)` returns an `extra_task` factory that subscribes the
+  notifier to watchdog + cost-guard and starts the long-poll
+  `TelegramBot`. Reads `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
+  from env. Gracefully no-ops when the optional dep is missing or
+  the env vars are unset so the daemon still boots in air-gapped
+  environments.
+- **10 new tests**: 6 in `test_daemon_journal.py` (init files exist,
+  journal entries mirrored from watchdog, crash-resume preserves
+  journal, registry survives restart), 4 in `test_telegram_bridge.py`
+  (no-op without env, graceful degradation, empty-token handling).
+- **Test count: 134 passing** (up from 67 in v0.2d).
+
+### Notes
+- The journal is the spine for `tail -f`/Telegram `/log` and for
+  `Registry.compute_next_actions()` after a crash. The registry is
+  the spine for `agents status` and the JARVIS `/live` card. Both
+  live under `<state_dir>/` so `restart` resumes from disk with no
+  operator intervention.
+- The Telegram bridge does NOT swallow exceptions silently — any
+  uncaught error during `run_forever()` is logged at WARNING so an
+  operator scanning the daemon JSONL notices the bridge is offline.
+- The Telegram bot token was stored in `~/.hermes/.env` (chmod 600)
+  rather than in the repo or the chat transcript; the CLI reads it
+  via `os.environ` at boot. Future: move to a vault like
+  `keyring`/`pass`.
+
 ## [0.2.3] — 2026-06-28 — Checkpoint + resume (v0.2d)
 
 ### Added

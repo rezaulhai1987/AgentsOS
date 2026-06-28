@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentsos"
-version = "0.1.0"
+version = "0.3.6"
 description = "An operating system for agent creation, management, and orchestration."
 readme = "README.md"
 license = { text = "MIT" }
